@@ -194,8 +194,6 @@ function typeInput(selector, text) {
 // Start filling the form
 console.log("Starting form fill...");
 `;
-
-    // Map the extracted data fields to form input selectors
     const fieldMappings = {
       FormNumber: 'input[name="FormNumber"], input[id="FormNumber"]',
       FormNumberId: 'input[name="FormNumberId"], input[id="FormNumberId"]',
@@ -250,33 +248,37 @@ console.log("Starting form fill...");
 
     Object.entries(data).forEach(([field, value]) => {
       const selector = fieldMappings[field];
-
+    
       // If no selector found, skip the field
       if (!selector) {
         console.log(`No selector found for field: ${field}`);
         return;
       }
-
-      // Replace N/A with "Data Not Available" while preserving any tags
-      const finalValue = value
-        ? value.replace(
-            /(<[^>]+>)?N\/A(<[^>]+>)?/gi,
-            (match, beforeTag, afterTag) => {
-              return `${beforeTag || ""}Data Not Available${afterTag || ""}`;
-            }
-          )
+    
+      let finalValue = value
+        ? value.replace(/(<[^>]+>)?N\/A(<[^>]+>)?/gi, (match, beforeTag, afterTag) => {
+            return `${beforeTag || ""}Data Not Available${afterTag || ""}`;
+          })
         : "Data Not Available";
-
+    
+      // If the field is ContactNumber, ensure only numbers are allowed
+      if (field === "ContactNumber") {
+        console.log(finalValue)
+        finalValue = finalValue.replace(/\D/g, ""); // Remove all non-numeric characters
+      }
+    
+      // If the field is SubClassification, replace & with AND
+      if (field === "SubClassification") {
+        finalValue = finalValue.replace(/&/g, "AND");
+      }
+    
       // Add the command to fill this field
-      script += `\ntypeInput('${selector}', '${finalValue.replace(
-        /'/g,
-        "\\'"
-      )}')`;
+      script += `\ntypeInput('${selector}', '${finalValue.replace(/'/g, "\\'")}')`;
     });
-
+    
     script += '\nconsole.log("Form filling complete!");';
     return script;
-  };
+  }    
 
   const abbreviations = {
     LTD: "Limited",
@@ -364,12 +366,11 @@ console.log("Starting form fill...");
   const expandAbbreviations = (text) => {
     if (!text) return text;
 
-    // Create regex pattern dynamically from the keys, making it case-insensitive and allowing for optional punctuation
     const regexPattern = new RegExp(
       `\\b(${Object.keys(abbreviations).join("|")})\\b|(${Object.keys(
         abbreviations
-      ).join("|")})\\.`, // Handle punctuation
-      "gi" // "gi" for case-insensitivity and global matching
+      ).join("|")})\\.`, 
+      "gi"
     );
 
     // Replace matches with their full form
@@ -426,9 +427,8 @@ console.log("Starting form fill...");
 
       case "CompanyAddress":
         cleanedValue = formatAddress(cleanedValue);
-        const phoneMatch = cleanedValue.match(
-          /(?:Phone|Tel|T):\s*([0-9+\s()-]+)/i
-        );
+        const phoneMatch = cleanedValue.match(/(?:^|\s)Tel:\s*([\d+\-().\s]+)/i);
+
         const faxMatch = cleanedValue.match(/(?:Fax|F):\s*([0-9+\s()-]+)/i);
         if (phoneMatch) {
           data["ContactNumber"] = phoneMatch[1].replace(/-/g, "").trim();
@@ -457,12 +457,9 @@ console.log("Starting form fill...");
         }
     }
 
-    // Apply HTML tags if there's a rule for this field
-    // Ensure no spaces before or after tags
     if (tagRules[fieldName]) {
       cleanedValue = tagRules[fieldName](cleanedValue.trim());
     }
-
     return cleanedValue;
   };
 
@@ -800,7 +797,8 @@ State: [exact state]
             </DropZone>
 
             {image && (
-              <Box sx={{ mt: 3 }}>
+              <>
+            <Box sx={{ mt: 3 }}>
                 <Button
                   variant="contained"
                   fullWidth
@@ -827,7 +825,74 @@ State: [exact state]
                     "Extract Form Data"
                   )}
                 </Button>
+                
               </Box>
+              <Button
+              style={{marginTop:20}}
+              variant="contained"
+              startIcon={<CodeIcon />}
+              onClick={() => {
+                if (!formData) {
+                  showToast("No form data available", "error");
+                  return;
+                }
+
+                // Validate form but don't block on warnings
+                handleFormSubmission(formData);
+
+                const script = generateFormFillingScript(formData);
+                navigator.clipboard.writeText(script);
+                showToast("Form filling script copied to clipboard");
+                // setModalContent(
+                //   <Box sx={{ color: "#202124" }}>
+                //     <Typography
+                //       variant="h6"
+                //       gutterBottom
+                //       sx={{
+                //         fontSize: "1.125rem",
+                //         fontWeight: 500,
+                //         color: "#202124",
+                //       }}
+                //     >
+                //       Form Filling Script Copied!
+                //     </Typography>
+                //     <Typography
+                //       variant="body1"
+                //       gutterBottom
+                //       sx={{ color: "#5f6368" }}
+                //     >
+                //       To use the script:
+                //     </Typography>
+                //     <Box
+                //       component="ol"
+                //       sx={{
+                //         pl: 2,
+                //         "& li": {
+                //           mb: 1,
+                //           color: "#5f6368",
+                //         },
+                //       }}
+                //     >
+                //       <li>Go to your form website</li>
+                //       <li>Open Developer Tools (F12)</li>
+                //       <li>Go to Console tab</li>
+                //       <li>Paste the copied script</li>
+                //       <li>Press Enter</li>
+                //     </Box>
+                //   </Box>
+                // );
+                // setShowModal(true);
+              }}
+              sx={{
+                bgcolor: "primary.main",
+                "&:hover": {
+                  bgcolor: "primary.dark",
+                },
+              }}
+            >
+              Copy Form Filling Script
+            </Button>
+            </>
             )}
           </Box>
 
@@ -1007,70 +1072,7 @@ State: [exact state]
                   >
                     Copy as JSON
                   </Button>
-                  <Button
-                    variant="contained"
-                    startIcon={<CodeIcon />}
-                    onClick={() => {
-                      if (!formData) {
-                        showToast("No form data available", "error");
-                        return;
-                      }
-
-                      // Validate form but don't block on warnings
-                      handleFormSubmission(formData);
-
-                      const script = generateFormFillingScript(formData);
-                      navigator.clipboard.writeText(script);
-                      showToast("Form filling script copied to clipboard");
-                      setModalContent(
-                        <Box sx={{ color: "#202124" }}>
-                          <Typography
-                            variant="h6"
-                            gutterBottom
-                            sx={{
-                              fontSize: "1.125rem",
-                              fontWeight: 500,
-                              color: "#202124",
-                            }}
-                          >
-                            Form Filling Script Copied!
-                          </Typography>
-                          <Typography
-                            variant="body1"
-                            gutterBottom
-                            sx={{ color: "#5f6368" }}
-                          >
-                            To use the script:
-                          </Typography>
-                          <Box
-                            component="ol"
-                            sx={{
-                              pl: 2,
-                              "& li": {
-                                mb: 1,
-                                color: "#5f6368",
-                              },
-                            }}
-                          >
-                            <li>Go to your form website</li>
-                            <li>Open Developer Tools (F12)</li>
-                            <li>Go to Console tab</li>
-                            <li>Paste the copied script</li>
-                            <li>Press Enter</li>
-                          </Box>
-                        </Box>
-                      );
-                      setShowModal(true);
-                    }}
-                    sx={{
-                      bgcolor: "primary.main",
-                      "&:hover": {
-                        bgcolor: "primary.dark",
-                      },
-                    }}
-                  >
-                    Copy Form Filling Script
-                  </Button>
+                  
                 </Box>
               </Paper>
             )}
